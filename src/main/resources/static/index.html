@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>URL Shortener Frontend</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f8fafc;
+            color: #1e293b;
+        }
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 24px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+        .card {
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+        h1, h2 {
+            margin-top: 0;
+        }
+        .section-title {
+            margin-bottom: 16px;
+        }
+        .field {
+            margin-bottom: 16px;
+        }
+        label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 6px;
+        }
+        input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            font-size: 14px;
+        }
+        .buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        button {
+            padding: 10px 14px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            background: #2563eb;
+            color: white;
+        }
+        button.secondary {
+            background: #475569;
+        }
+        button.danger {
+            background: #dc2626;
+        }
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .message, .error {
+            margin-top: 16px;
+            padding: 12px;
+            border-radius: 10px;
+            font-size: 14px;
+        }
+        .message {
+            background: #dcfce7;
+            color: #166534;
+        }
+        .error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        .result-row {
+            margin-bottom: 10px;
+            word-break: break-all;
+        }
+        .muted {
+            color: #64748b;
+        }
+        @media (max-width: 900px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="card">
+        <h1 class="section-title">URL Shortener Frontend</h1>
+
+        <div class="field">
+            <label for="urlInput">Original URL</label>
+            <input id="urlInput" type="text" placeholder="https://www.google.com" />
+        </div>
+
+        <button id="createBtn">Create Short URL</button>
+
+        <div class="field" style="margin-top: 20px;">
+            <label for="shortCodeInput">Short Code</label>
+            <input id="shortCodeInput" type="text" placeholder="e.g. abc123" />
+        </div>
+
+        <div class="buttons">
+            <button id="statsBtn" class="secondary">Get Stats</button>
+            <button id="visitBtn" class="secondary">Visit Short URL</button>
+        </div>
+
+        <div id="messageBox" class="message" style="display:none;"></div>
+        <div id="errorBox" class="error" style="display:none;"></div>
+    </div>
+
+    <div>
+        <div class="card" style="margin-bottom: 24px;">
+            <h2>Latest Result</h2>
+            <div id="resultBox" class="muted">No result yet.</div>
+            <div style="margin-top: 16px;">
+                <button id="copyBtn" class="secondary">Copy Short URL</button>
+            </div>
+        </div>
+
+        <div class="card" style="margin-bottom: 24px;">
+            <h2>Edit or Delete</h2>
+            <div class="field">
+                <label for="updateUrlInput">New URL</label>
+                <input id="updateUrlInput" type="text" placeholder="https://www.example.com/updated" />
+            </div>
+            <div class="buttons">
+                <button id="updateBtn">Update</button>
+                <button id="deleteBtn" class="danger">Delete</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Stats</h2>
+            <div id="statsBox" class="muted">No stats loaded yet.</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const API_BASE = 'http://localhost:8080';
+
+    const urlInput = document.getElementById('urlInput');
+    const shortCodeInput = document.getElementById('shortCodeInput');
+    const updateUrlInput = document.getElementById('updateUrlInput');
+
+    const createBtn = document.getElementById('createBtn');
+    const statsBtn = document.getElementById('statsBtn');
+    const visitBtn = document.getElementById('visitBtn');
+    const updateBtn = document.getElementById('updateBtn');
+    const deleteBtn = document.getElementById('deleteBtn');
+    const copyBtn = document.getElementById('copyBtn');
+
+    const messageBox = document.getElementById('messageBox');
+    const errorBox = document.getElementById('errorBox');
+    const resultBox = document.getElementById('resultBox');
+    const statsBox = document.getElementById('statsBox');
+
+    let latestResult = null;
+
+    function showMessage(text) {
+        messageBox.textContent = text;
+        messageBox.style.display = 'block';
+        errorBox.style.display = 'none';
+    }
+
+    function showError(text) {
+        errorBox.textContent = text;
+        errorBox.style.display = 'block';
+        messageBox.style.display = 'none';
+    }
+
+    function clearFeedback() {
+        messageBox.style.display = 'none';
+        errorBox.style.display = 'none';
+    }
+
+    function setLoading(isLoading) {
+        createBtn.disabled = isLoading;
+        statsBtn.disabled = isLoading;
+        visitBtn.disabled = isLoading;
+        updateBtn.disabled = isLoading;
+        deleteBtn.disabled = isLoading;
+        copyBtn.disabled = isLoading;
+    }
+
+    function renderResult(data) {
+        if (!data) {
+            resultBox.innerHTML = '<div class="muted">No result yet.</div>';
+            return;
+        }
+
+        resultBox.innerHTML = `
+        <div class="result-row"><strong>ID:</strong> ${data.id}</div>
+        <div class="result-row"><strong>Original URL:</strong> ${data.url}</div>
+        <div class="result-row"><strong>Short Code:</strong> ${data.shortCode}</div>
+        <div class="result-row"><strong>Short URL:</strong> ${API_BASE}/r/${data.shortCode}</div>
+        <div class="result-row"><strong>Created At:</strong> ${data.createdAt}</div>
+        <div class="result-row"><strong>Updated At:</strong> ${data.updatedAt}</div>
+      `;
+    }
+
+    function renderStats(data) {
+        if (!data) {
+            statsBox.innerHTML = '<div class="muted">No stats loaded yet.</div>';
+            return;
+        }
+
+        statsBox.innerHTML = `
+        <div class="result-row"><strong>ID:</strong> ${data.id}</div>
+        <div class="result-row"><strong>Original URL:</strong> ${data.url}</div>
+        <div class="result-row"><strong>Short Code:</strong> ${data.shortCode}</div>
+        <div class="result-row"><strong>Access Count:</strong> ${data.accessCount}</div>
+        <div class="result-row"><strong>Created At:</strong> ${data.createdAt}</div>
+        <div class="result-row"><strong>Updated At:</strong> ${data.updatedAt}</div>
+      `;
+    }
+
+    async function parseJsonSafe(response) {
+        try {
+            return await response.json();
+        } catch {
+            return {};
+        }
+    }
+
+    createBtn.addEventListener('click', async function () {
+        clearFeedback();
+
+        const url = urlInput.value.trim();
+        if (!url) {
+            showError('Please enter a URL.');
+            return;
+        }
+
+        try {
+            setLoading(true);
+            const response = await fetch(`${API_BASE}/shorten`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: url })
+            });
+
+            const data = await parseJsonSafe(response);
+
+            if (!response.ok) {
+                showError(data.message || 'Failed to create short URL.');
+                return;
+            }
+
+            latestResult = data;
+            shortCodeInput.value = data.shortCode;
+            updateUrlInput.value = data.url;
+            renderResult(data);
+            renderStats(null);
+            showMessage('Short URL created successfully.');
+        } catch {
+            showError('Cannot connect to backend. Make sure Spring Boot is running on http://localhost:8080.');
+        } finally {
+            setLoading(false);
+        }
+    });
+
+    statsBtn.addEventListener('click', async function () {
+        clearFeedback();
+
+        const shortCode = shortCodeInput.value.trim();
+        if (!shortCode) {
+            showError('Please enter a short code.');
+            return;
+        }
+
+        try {
+            setLoading(true);
+            const response = await fetch(`${API_BASE}/shorten/${shortCode}/stats`);
+            const data = await parseJsonSafe(response);
+
+            if (!response.ok) {
+                showError(data.message || 'Failed to fetch stats.');
+                return;
+            }
+
+            renderStats(data);
+            showMessage('Stats loaded successfully.');
+        } catch {
+            showError('Cannot connect to backend.');
+        } finally {
+            setLoading(false);
+        }
+    });
+
+    updateBtn.addEventListener('click', async function () {
+        clearFeedback();
+
+        const shortCode = shortCodeInput.value.trim();
+        const newUrl = updateUrlInput.value.trim();
+
+        if (!shortCode) {
+            showError('Please enter a short code.');
+            return;
+        }
+
+        if (!newUrl) {
+            showError('Please enter a new URL.');
+            return;
+        }
+
+        try {
+            setLoading(true);
+            const response = await fetch(`${API_BASE}/shorten/${shortCode}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: newUrl })
+            });
+
+            const data = await parseJsonSafe(response);
+
+            if (!response.ok) {
+                showError(data.message || 'Failed to update URL.');
+                return;
+            }
+
+            latestResult = data;
+            renderResult(data);
+            showMessage('URL updated successfully.');
+        } catch {
+            showError('Cannot connect to backend.');
+        } finally {
+            setLoading(false);
+        }
+    });
+
+    deleteBtn.addEventListener('click', async function () {
+        clearFeedback();
+
+        const shortCode = shortCodeInput.value.trim();
+        if (!shortCode) {
+            showError('Please enter a short code.');
+            return;
+        }
+
+        try {
+            setLoading(true);
+            const response = await fetch(`${API_BASE}/shorten/${shortCode}`, {
+                method: 'DELETE'
+            });
+
+            if (!response.ok) {
+                const data = await parseJsonSafe(response);
+                showError(data.message || 'Failed to delete URL.');
+                return;
+            }
+
+            latestResult = null;
+            shortCodeInput.value = '';
+            updateUrlInput.value = '';
+            renderResult(null);
+            renderStats(null);
+            showMessage('URL deleted successfully.');
+        } catch {
+            showError('Cannot connect to backend.');
+        } finally {
+            setLoading(false);
+        }
+    });
+
+    visitBtn.addEventListener('click', function () {
+        clearFeedback();
+
+        const shortCode = shortCodeInput.value.trim();
+        if (!shortCode) {
+            showError('Please enter a short code.');
+            return;
+        }
+
+        window.open(`${API_BASE}/r/${shortCode}`, '_blank');
+    });
+
+    copyBtn.addEventListener('click', async function () {
+        clearFeedback();
+
+        const shortCode = shortCodeInput.value.trim();
+        if (!shortCode) {
+            showError('Please enter a short code first.');
+            return;
+        }
+
+        const fullShortUrl = `${API_BASE}/r/${shortCode}`;
+
+        try {
+            await navigator.clipboard.writeText(fullShortUrl);
+            showMessage('Short URL copied to clipboard.');
+        } catch {
+            showError('Failed to copy short URL.');
+        }
+    });
+</script>
+</body>
+</html>
